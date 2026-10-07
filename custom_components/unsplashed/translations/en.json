@@ -1,0 +1,92 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Unsplashed",
+        "description": "Saves fresh Unsplash photos to a folder on a schedule. Create a free app at {apps_url} and paste its **Access Key** below. Use either search words or topics/collections, not both.",
+        "data": {
+          "access_key": "Access key",
+          "query": "Search words",
+          "topics": "Topics",
+          "collections": "Collections",
+          "count": "Photos per fetch",
+          "interval_hours": "Fetch every",
+          "width": "Width",
+          "height": "Height",
+          "folder": "Save to folder",
+          "keep_days": "Delete photos older than",
+          "strict_content_filter": "Strict content filter"
+        },
+        "data_description": {
+          "access_key": "From your Unsplash developer app. Not the secret key.",
+          "query": "Comma-separated keywords, for example: maine, coast, autumn forest.",
+          "topics": "Comma-separated topic slugs or IDs, for example: nature, wallpapers, travel.",
+          "collections": "Comma-separated public collection IDs.",
+          "count": "Each fetch uses 1 API request plus 1 per photo. Demo apps get 50 requests per hour.",
+          "width": "Photos are cropped to exactly this size. Width smaller than height gives portrait photos.",
+          "folder": "Absolute path. Point an Album Slideshow \"Local folder\" entry here.",
+          "keep_days": "0 keeps every photo forever.",
+          "strict_content_filter": "Ask Unsplash to filter more aggressively for family-friendly content."
+        }
+      },
+      "reauth_confirm": {
+        "title": "New Unsplash access key",
+        "description": "Unsplash rejected the saved access key. Paste a current one.",
+        "data": { "access_key": "Access key" }
+      }
+    },
+    "error": {
+      "invalid_auth": "Unsplash rejected that access key.",
+      "cannot_connect": "Could not reach Unsplash.",
+      "folder_not_absolute": "Use an absolute path such as /media/wallpapers.",
+      "folder_not_writable": "Home Assistant can't create or write to that folder.",
+      "query_and_topics": "Unsplash can't combine search words with topics or collections. Use one or the other."
+    },
+    "abort": {
+      "reauth_successful": "Access key updated."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Unsplashed options",
+        "data": {
+          "query": "Search words",
+          "topics": "Topics",
+          "collections": "Collections",
+          "count": "Photos per fetch",
+          "interval_hours": "Fetch every",
+          "width": "Width",
+          "height": "Height",
+          "folder": "Save to folder",
+          "keep_days": "Delete photos older than",
+          "strict_content_filter": "Strict content filter"
+        },
+        "data_description": {
+          "query": "Comma-separated keywords. Leave empty to use topics or collections.",
+          "count": "Each fetch uses 1 API request plus 1 per photo. Demo apps get 50 requests per hour.",
+          "keep_days": "0 keeps every photo forever."
+        }
+      }
+    },
+    "error": {
+      "folder_not_absolute": "Use an absolute path such as /media/wallpapers.",
+      "folder_not_writable": "Home Assistant can't create or write to that folder.",
+      "query_and_topics": "Unsplash can't combine search words with topics or collections. Use one or the other."
+    }
+  },
+  "entity": {
+    "button": {
+      "fetch_now": { "name": "Fetch now" }
+    },
+    "image": {
+      "latest": { "name": "Latest photo" }
+    },
+    "sensor": {
+      "latest_credit": { "name": "Latest photo credit" },
+      "image_count": { "name": "Photos in folder" },
+      "last_fetch": { "name": "Last fetch" },
+      "rate_limit_remaining": { "name": "API requests remaining" }
+    }
+  }
+}

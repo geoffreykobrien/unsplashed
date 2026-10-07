@@ -1,0 +1,13 @@
+{
+  "domain": "unsplashed",
+  "name": "Unsplashed",
+  "codeowners": ["@geoffreykobrien"],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/geoffreykobrien/unsplashed",
+  "integration_type": "service",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/geoffreykobrien/unsplashed/issues",
+  "requirements": [],
+  "version": "0.1.0"
+}
