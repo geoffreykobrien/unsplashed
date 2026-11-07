@@ -15,7 +15,10 @@ async def async_setup_entry(
     entry: UnsplashConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
-    async_add_entities([FetchNowButton(entry.runtime_data, "fetch_now")])
+    for subentry_id, coordinator in entry.runtime_data.items():
+        async_add_entities(
+            [FetchNowButton(coordinator, "fetch_now")], config_subentry_id=subentry_id
+        )
 
 
 class FetchNowButton(UnsplashEntity, ButtonEntity):

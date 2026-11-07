@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Unsplashed",
-        "description": "Saves fresh Unsplash photos to a folder on a schedule. Create a free app at {apps_url} and paste its **Access Key** below. You'll choose what to fetch on the next screen.",
+        "description": "Saves fresh Unsplash photos to a folder on a schedule. Create a free app at {apps_url} and paste its **Access Key** below. You'll set up your first feed on the next screen, and can add more feeds later with the same key.",
         "data": {
           "access_key": "Access key"
         },
@@ -13,13 +13,13 @@
       },
       "reauth_confirm": {
         "title": "New Unsplash access key",
-        "description": "Unsplash rejected the saved access key. Paste a current one.",
+        "description": "Unsplash rejected the saved access key. Paste a current one. Every feed on this account will use it.",
         "data": {
           "access_key": "Access key"
         }
       },
       "feed": {
-        "title": "What to fetch",
+        "title": "Your first feed",
         "description": "Use search words, topics/collections, or photographers. Color works with search words or collections. Leave everything empty for random photos from all of Unsplash.",
         "data": {
           "query": "Search words",
@@ -49,6 +49,13 @@
           "color": "Only photos dominated by this color. Uses Unsplash search, so it works with search words or collections but not topics. With no search words, the color name is used as the search.",
           "include_illustrations": "Unsplash now mixes illustrations into photo results. Leave off to keep the feed to photos."
         }
+      },
+      "reconfigure": {
+        "title": "Change access key",
+        "description": "Paste a new Unsplash access key. Every feed on this account will use it.",
+        "data": {
+          "access_key": "Access key"
+        }
       }
     },
     "error": {
@@ -62,46 +69,9 @@
       "color_and_topics": "Unsplash's color filter only works with search words or collections, not topics."
     },
     "abort": {
-      "reauth_successful": "Access key updated."
-    }
-  },
-  "options": {
-    "step": {
-      "init": {
-        "title": "Unsplashed options",
-        "data": {
-          "query": "Search words",
-          "topics": "Topics",
-          "collections": "Collections",
-          "count": "Photos per fetch",
-          "interval_hours": "Fetch every",
-          "width": "Width",
-          "height": "Height",
-          "folder": "Save to folder",
-          "keep_days": "Delete photos older than",
-          "strict_content_filter": "Strict content filter",
-          "usernames": "Photographers",
-          "color": "Color",
-          "include_illustrations": "Include illustrations"
-        },
-        "data_description": {
-          "query": "Comma-separated keywords. Leave empty to use topics or collections.",
-          "count": "Each fetch uses 1 API request plus 1 per photo. Demo apps get 50 requests per hour.",
-          "keep_days": "0 keeps every photo forever.",
-          "topics": "Pick from Unsplash's featured topics, or type any topic slug.",
-          "usernames": "Comma-separated Unsplash usernames (up to 10), for example: chrislawton, @nasa. Photos come only from these photographers. Can't be combined with other filters.",
-          "color": "Only photos dominated by this color. Uses Unsplash search, so it works with search words or collections but not topics. With no search words, the color name is used as the search.",
-          "include_illustrations": "Unsplash now mixes illustrations into photo results. Leave off to keep the feed to photos."
-        }
-      }
-    },
-    "error": {
-      "folder_not_absolute": "Use an absolute path such as /media/wallpapers.",
-      "folder_not_writable": "Home Assistant can't create or write to that folder.",
-      "query_and_topics": "Unsplash can't combine search words with topics or collections. Use one or the other.",
-      "usernames_exclusive": "Photographers can't be combined with search words, topics, collections or a color. Clear the others or the photographers.",
-      "too_many_usernames": "Use 10 photographers or fewer.",
-      "color_and_topics": "Unsplash's color filter only works with search words or collections, not topics."
+      "already_configured": "This access key is already set up. To add another feed, open the Unsplashed integration and choose **Add feed**.",
+      "reauth_successful": "Access key updated.",
+      "reconfigure_successful": "Access key updated."
     }
   },
   "entity": {
@@ -145,6 +115,92 @@
         "green": "Green",
         "teal": "Teal",
         "blue": "Blue"
+      }
+    }
+  },
+  "config_subentries": {
+    "feed": {
+      "entry_type": "Feed",
+      "initiate_flow": {
+        "user": "Add feed",
+        "reconfigure": "Change feed"
+      },
+      "step": {
+        "user": {
+          "title": "Add a feed",
+          "description": "Use search words, topics/collections, or photographers. Color works with search words or collections. Leave everything empty for random photos from all of Unsplash.",
+          "data": {
+            "query": "Search words",
+            "topics": "Topics",
+            "collections": "Collections",
+            "count": "Photos per fetch",
+            "interval_hours": "Fetch every",
+            "width": "Width",
+            "height": "Height",
+            "folder": "Save to folder",
+            "keep_days": "Delete photos older than",
+            "strict_content_filter": "Strict content filter",
+            "usernames": "Photographers",
+            "color": "Color",
+            "include_illustrations": "Include illustrations"
+          },
+          "data_description": {
+            "query": "Comma-separated keywords, for example: maine, coast, autumn forest.",
+            "topics": "Pick from Unsplash's featured topics, or type any topic slug.",
+            "collections": "Comma-separated public collection IDs.",
+            "count": "Each fetch uses 1 API request plus 1 per photo. Demo apps get 50 requests per hour.",
+            "width": "Photos are cropped to exactly this size. Width smaller than height gives portrait photos.",
+            "folder": "Absolute path. Point an Album Slideshow \"Local folder\" entry here.",
+            "keep_days": "0 keeps every photo forever.",
+            "strict_content_filter": "Ask Unsplash to filter more aggressively for family-friendly content.",
+            "usernames": "Comma-separated Unsplash usernames (up to 10), for example: chrislawton, @nasa. Photos come only from these photographers. Can't be combined with other filters.",
+            "color": "Only photos dominated by this color. Uses Unsplash search, so it works with search words or collections but not topics. With no search words, the color name is used as the search.",
+            "include_illustrations": "Unsplash now mixes illustrations into photo results. Leave off to keep the feed to photos."
+          }
+        },
+        "reconfigure": {
+          "title": "Change feed",
+          "description": "Use search words, topics/collections, or photographers. Color works with search words or collections. Leave everything empty for random photos from all of Unsplash.",
+          "data": {
+            "query": "Search words",
+            "topics": "Topics",
+            "collections": "Collections",
+            "count": "Photos per fetch",
+            "interval_hours": "Fetch every",
+            "width": "Width",
+            "height": "Height",
+            "folder": "Save to folder",
+            "keep_days": "Delete photos older than",
+            "strict_content_filter": "Strict content filter",
+            "usernames": "Photographers",
+            "color": "Color",
+            "include_illustrations": "Include illustrations"
+          },
+          "data_description": {
+            "query": "Comma-separated keywords, for example: maine, coast, autumn forest.",
+            "topics": "Pick from Unsplash's featured topics, or type any topic slug.",
+            "collections": "Comma-separated public collection IDs.",
+            "count": "Each fetch uses 1 API request plus 1 per photo. Demo apps get 50 requests per hour.",
+            "width": "Photos are cropped to exactly this size. Width smaller than height gives portrait photos.",
+            "folder": "Absolute path. Point an Album Slideshow \"Local folder\" entry here.",
+            "keep_days": "0 keeps every photo forever.",
+            "strict_content_filter": "Ask Unsplash to filter more aggressively for family-friendly content.",
+            "usernames": "Comma-separated Unsplash usernames (up to 10), for example: chrislawton, @nasa. Photos come only from these photographers. Can't be combined with other filters.",
+            "color": "Only photos dominated by this color. Uses Unsplash search, so it works with search words or collections but not topics. With no search words, the color name is used as the search.",
+            "include_illustrations": "Unsplash now mixes illustrations into photo results. Leave off to keep the feed to photos."
+          }
+        }
+      },
+      "error": {
+        "folder_not_absolute": "Use an absolute path such as /media/wallpapers.",
+        "folder_not_writable": "Home Assistant can't create or write to that folder.",
+        "query_and_topics": "Unsplash can't combine search words with topics or collections. Use one or the other.",
+        "usernames_exclusive": "Photographers can't be combined with search words, topics, collections or a color. Clear the others or the photographers.",
+        "too_many_usernames": "Use 10 photographers or fewer.",
+        "color_and_topics": "Unsplash's color filter only works with search words or collections, not topics."
+      },
+      "abort": {
+        "reconfigure_successful": "Feed updated."
       }
     }
   }

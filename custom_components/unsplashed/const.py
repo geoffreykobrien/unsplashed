@@ -50,3 +50,9 @@ COLORS: Final = {
 FILE_PREFIX: Final = "unsplash_"
 
 EVENT_NEW_IMAGE: Final = f"{DOMAIN}_new_image"
+
+SUBENTRY_FEED: Final = "feed"
+# Feeds migrated from 0.2.x keep their old entry_id as the ID used for entity
+# unique IDs, the device and the storage file, so nothing changes for them.
+CONF_LEGACY_ID: Final = "legacy_id"
+ACCOUNT_TITLE: Final = "Unsplash"

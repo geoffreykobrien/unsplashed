@@ -36,8 +36,18 @@ def _entry(tmp_path, **options) -> MockConfigEntry:
     }
     opts.update(options)
     return MockConfigEntry(
-        domain=DOMAIN, title="Unsplashed: maine", data={"access_key": "k"}, options=opts
+        domain=DOMAIN,
+        title="Unsplash",
+        version=2,
+        data={"access_key": "k"},
+        subentries_data=[
+            {"data": opts, "subentry_type": "feed", "title": "maine", "unique_id": None}
+        ],
     )
+
+
+def _coord(entry):
+    return next(iter(entry.runtime_data.values()))
 
 
 def _mock_api(aioclient_mock, ids) -> None:
@@ -150,7 +160,7 @@ async def test_not_due_early(
     calls = aioclient_mock.call_count
 
     freezer.tick(timedelta(hours=2))
-    await entry.runtime_data.async_refresh()
+    await _coord(entry).async_refresh()
     assert aioclient_mock.call_count == calls
 
 
@@ -265,7 +275,7 @@ async def test_color_uses_search(hass, aioclient_mock, tmp_path) -> None:
     assert q["query"] == "blue"  # color name used when there are no search words
     assert q["orientation"] == "portrait"
     assert (tmp_path / "unsplash_b1.jpg").exists()
-    assert entry.runtime_data._search_pages == 5
+    assert _coord(entry)._search_pages == 5
 
 
 async def test_photographers_split_and_interleave(hass, aioclient_mock, tmp_path) -> None:
@@ -294,3 +304,54 @@ async def test_photographers_split_and_interleave(hass, aioclient_mock, tmp_path
     assert len(saved) == 2
     assert any(n.startswith("unsplash_a") for n in saved)
     assert any(n.startswith("unsplash_b") for n in saved)
+
+
+async def test_migrates_v1_feed_without_changing_entities(hass, aioclient_mock, tmp_path) -> None:
+    """A 0.2.x install (one entry per feed) moves under an account entry."""
+    from homeassistant.helpers import device_registry as dr, entity_registry as er
+
+    _mock_api(aioclient_mock, ["aaa"])
+    opts = {
+        "query": "Maine, coast, fall", "topics": "", "collections": "", "count": 1,
+        "interval_hours": 1, "width": 1080, "height": 1920, "folder": str(tmp_path),
+        "keep_days": 1, "strict_content_filter": False,
+    }
+    old = MockConfigEntry(
+        domain=DOMAIN, title="Unsplashed: Maine, coast, fall", version=1,
+        data={"access_key": "k"}, options=opts, entry_id="OLDENTRY",
+    )
+    old.add_to_hass(hass)
+    # Registry state as 0.2.x left it.
+    dev_reg = dr.async_get(hass)
+    device = dev_reg.async_get_or_create(
+        config_entry_id=old.entry_id, identifiers={(DOMAIN, "OLDENTRY")},
+        name="Unsplashed: Maine, coast, fall",
+    )
+    ent_reg = er.async_get(hass)
+    ent_reg.async_get_or_create(
+        "sensor", DOMAIN, "OLDENTRY_latest_credit", config_entry=old,
+        device_id=device.id, suggested_object_id="unsplashed_maine_coast_fall_latest_photo_credit",
+    )
+
+    assert await hass.config_entries.async_setup(old.entry_id)
+    await hass.async_block_till_done()
+
+    assert old.version == 2
+    assert old.title == "Unsplash"
+    assert old.options == {}
+    (feed,) = old.subentries.values()
+    assert feed.title == "Maine, coast, fall"
+    assert feed.data["legacy_id"] == "OLDENTRY"
+    assert feed.data["query"] == "Maine, coast, fall"
+
+    ent = ent_reg.async_get("sensor.unsplashed_maine_coast_fall_latest_photo_credit")
+    assert ent is not None and ent.config_subentry_id == feed.subentry_id
+    assert ent.unique_id == "OLDENTRY_latest_credit"
+    assert hass.states.get("sensor.unsplashed_maine_coast_fall_latest_photo_credit").state == (
+        "Photo by Jane Doe on Unsplash"
+    )
+    device = dev_reg.async_get(device.id)
+    assert device.config_entries_subentries[old.entry_id] == {feed.subentry_id}
+    # No duplicate entities were created for the feed.
+    assert len([e for e in er.async_entries_for_config_entry(ent_reg, old.entry_id)
+                if e.unique_id.startswith("OLDENTRY_latest_credit")]) == 1

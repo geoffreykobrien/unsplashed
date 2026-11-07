@@ -77,7 +77,11 @@ async def async_setup_entry(
     entry: UnsplashConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
-    async_add_entities(UnsplashSensor(entry.runtime_data, d) for d in SENSORS)
+    for subentry_id, coordinator in entry.runtime_data.items():
+        async_add_entities(
+            [UnsplashSensor(coordinator, d) for d in SENSORS],
+            config_subentry_id=subentry_id,
+        )
 
 
 class UnsplashSensor(UnsplashEntity, SensorEntity):

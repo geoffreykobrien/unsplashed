@@ -2,7 +2,7 @@
 
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://hacs.xyz/docs/faq/custom_repositories)
 [![Validate](https://github.com/geoffreykobrien/unsplashed/actions/workflows/validate.yml/badge.svg)](https://github.com/geoffreykobrien/unsplashed/actions/workflows/validate.yml)
-![Home Assistant 2025.1+](https://img.shields.io/badge/Home%20Assistant-2025.1%2B-blue)
+![Home Assistant 2025.7+](https://img.shields.io/badge/Home%20Assistant-2025.7%2B-blue)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 A Home Assistant integration that saves fresh photos from [Unsplash](https://unsplash.com) to a local folder on a schedule. Each photo is cropped to the exact size of your screen.
@@ -13,7 +13,7 @@ I built it to feed a portrait kitchen wall display. Point a slideshow at the fol
 
 ## Features
 
-- **Set up entirely in the UI.** You enter your Unsplash access key and every option in the Home Assistant setup screen. No YAML, no `secrets.yaml`, no shell commands.
+- **Set up entirely in the UI.** You enter your Unsplash access key once, then add as many feeds as you like with **Add feed**. No YAML, no `secrets.yaml`, no shell commands.
 - **Photos sized to your screen.** Set a width and height and every photo comes back cropped to exactly that size. Unsplash only returns photos in the matching orientation, so a 1080×1920 screen gets portrait photos.
 - **Choose what you get.** Filter by search words (`maine, coast, autumn`), Unsplash topics (picked from Unsplash's live list), public collection IDs, or specific photographers.
 - **Match a color.** Limit a feed to photos dominated by one color, such as blue, orange or black and white, to suit a room or season.
@@ -60,17 +60,26 @@ New apps start in **demo mode**, which allows **50 API requests per hour**. That
 
 1. Go to **Settings → Devices & services → Add integration** and choose **Unsplashed**.
 2. Paste your **Access key**. Setup checks it with Unsplash and loads the current list of featured topics.
-3. On the **What to fetch** screen, fill in the options below and click **Submit**. The first batch of photos downloads right away.
+3. On the **Your first feed** screen, fill in the options below and click **Submit**. The first batch of photos downloads right away.
 
-Each setup creates one *feed*. Add the integration more than once to run several feeds, for example a portrait feed for the kitchen and a landscape feed for the TV, each saving to its own folder.
+The integration then appears as one **Unsplash** account holding your key, with your feed listed under it.
 
-### Options
+### Adding more feeds
 
-You can change any of these later under **Settings → Devices & services → Unsplashed → Configure**. The access key is the only thing you can't change there; if Unsplash ever rejects it, Home Assistant prompts you for a new one.
+Open **Settings → Devices & services → Unsplashed** and click **Add feed**. You won't be asked for the key again. Each feed has its own filters, size, schedule and folder, for example a portrait feed for the kitchen and a landscape feed for the TV. All feeds share the key's hourly request limit, so add up their requests (see [Rate limits](#rate-limits)).
+
+To change a feed, click **⋮** next to it and choose **Change feed**. To remove one, choose **Delete**. Its saved photos stay on disk.
+
+To change the access key all your feeds use, click **⋮** next to the **Unsplash** account and choose **Reconfigure**. If Unsplash ever rejects the key, Home Assistant prompts you for a new one, which also applies to every feed. To use two different Unsplash keys, add the integration a second time with the other key.
+
+### Upgrading from 0.2.x or earlier
+
+Before 0.3.0, every feed was its own setup with its own copy of the key. On the first start after upgrading, each existing feed is moved under an **Unsplash** account entry automatically. Its entities, entity IDs, history, folder and settings stay exactly as they were, so dashboards and automations keep working. If you had several feeds with the same key, each becomes its own account entry. You can leave them like that, or recreate them with **Add feed** under one account.
+
+### Feed options
 
 | Option | Default | What it does |
 | --- | --- | --- |
-| **Access key** | — | Your Unsplash app's Access Key. Stored in Home Assistant's config entry, never in YAML. |
 | **Search words** | *(empty)* | Comma-separated keywords, such as `maine, coast, autumn forest`. |
 | **Topics** | *(empty)* | Pick one or more of Unsplash's featured [topics](https://unsplash.com/t) from the list, or type any topic slug. |
 | **Collections** | *(empty)* | Comma-separated public collection IDs. |
@@ -100,7 +109,7 @@ If you leave every filter empty, you get random photos from all of Unsplash.
 
 ## Entities
 
-All entities belong to one device per feed, named after the feed (for example **Unsplashed: maine, coast**).
+Each feed gets its own device, named after the feed (for example **Unsplashed: maine, coast**), with these entities.
 
 | Entity | Description |
 | --- | --- |
@@ -113,7 +122,7 @@ All entities belong to one device per feed, named after the feed (for example **
 
 ### Event: `unsplashed_new_image`
 
-Fired once for each photo saved. The event data includes `entry_id`, `id`, `path`, `description`, `photographer`, `photographer_url`, `photo_url`, `location`, `color`, `credit` and `saved_at`.
+Fired once for each photo saved. The event data includes `entry_id`, `feed_id`, `feed` (the feed's name), `id`, `path`, `description`, `photographer`, `photographer_url`, `photo_url`, `location`, `color`, `credit` and `saved_at`.
 
 ---
 
@@ -194,7 +203,7 @@ Each fetch uses **1 request** to choose photos (or **1 per photographer** in a p
 | 10 | 11 |
 | 30 (max) | 31 |
 
-Even at the maximum settings (30 photos, hourly) a single feed stays under the demo limit of 50 requests per hour. If you run several feeds on one key with a short interval, add up their totals. Setup checks the key and loads the topic list with two extra requests, and opening **Configure** loads the topic list again (one request).
+Even at the maximum settings (30 photos, hourly) a single feed stays under the demo limit of 50 requests per hour. If you run several feeds on one key with a short interval, add up their totals. Setup checks the key and loads the topic list with two extra requests, and **Add feed** or **Change feed** loads the topic list again (one request).
 
 If Unsplash returns a rate-limit error, the fetch is skipped and retried at the next interval. Nothing breaks.
 

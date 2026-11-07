@@ -8,7 +8,15 @@ from pathlib import Path
 from typing import Any
 
 import voluptuous as vol
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult, OptionsFlow
+import hashlib
+
+from homeassistant.config_entries import (
+    ConfigEntry,
+    ConfigFlow,
+    ConfigFlowResult,
+    ConfigSubentryFlow,
+    SubentryFlowResult,
+)
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
@@ -52,6 +60,8 @@ from .const import (
     DOMAIN,
     MAX_COUNT,
     MAX_USERNAMES,
+    ACCOUNT_TITLE,
+    SUBENTRY_FEED,
 )
 
 SETTING_KEYS = (
@@ -234,7 +244,7 @@ def _title(settings: Mapping[str, Any]) -> str:
     if color and color != COLOR_ANY:
         shade = COLORS.get(color, color)
         label = f"{label} ({shade})" if label else shade
-    return f"Unsplashed: {label}" if label else "Unsplashed: random"
+    return label or "random"
 
 
 async def _fetch_topics(hass: HomeAssistant, key: str) -> list[tuple[str, str]]:
@@ -245,33 +255,56 @@ async def _fetch_topics(hass: HomeAssistant, key: str) -> list[tuple[str, str]]:
         return []
 
 
+def _key_id(key: str) -> str:
+    """Unique ID for an account without storing the key itself in it."""
+    return hashlib.sha256(key.encode()).hexdigest()[:16]
+
+
+async def _check_key(hass: HomeAssistant, key: str) -> str | None:
+    client = UnsplashClient(async_get_clientsession(hass), key)
+    try:
+        await client.validate()
+    except InvalidAuth:
+        return "invalid_auth"
+    except UnsplashError:
+        return "cannot_connect"
+    return None
+
+
+_KEY_SCHEMA = vol.Schema(
+    {
+        vol.Required(CONF_ACCESS_KEY): TextSelector(
+            TextSelectorConfig(type=TextSelectorType.PASSWORD)
+        )
+    }
+)
+
+
 class UnsplashedConfigFlow(ConfigFlow, domain=DOMAIN):
-    """Set up an Unsplash wallpaper feed."""
+    """Add an Unsplash account (access key) and its first feed."""
 
-    VERSION = 1
-
-    async def _check_key(self, key: str) -> str | None:
-        client = UnsplashClient(async_get_clientsession(self.hass), key)
-        try:
-            await client.validate()
-        except InvalidAuth:
-            return "invalid_auth"
-        except UnsplashError:
-            return "cannot_connect"
-        return None
+    VERSION = 2
 
     def __init__(self) -> None:
         self._key: str | None = None
         self._topics: list[tuple[str, str]] = []
 
+    @classmethod
+    def async_get_supported_subentry_types(
+        cls, config_entry: ConfigEntry
+    ) -> dict[str, type[ConfigSubentryFlow]]:
+        return {SUBENTRY_FEED: FeedSubentryFlow}
+
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Step 1: the access key (needed to load the topic list)."""
+        """Step 1: the access key."""
         errors: dict[str, str] = {}
         if user_input is not None:
             key = user_input[CONF_ACCESS_KEY].strip()
-            if err := await self._check_key(key):
+            await self.async_set_unique_id(_key_id(key))
+            self._abort_if_unique_id_configured()
+            if err := await _check_key(self.hass, key):
                 errors["base"] = err
             else:
                 self._key = key
@@ -280,13 +313,7 @@ class UnsplashedConfigFlow(ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="user",
-            data_schema=vol.Schema(
-                {
-                    vol.Required(CONF_ACCESS_KEY): TextSelector(
-                        TextSelectorConfig(type=TextSelectorType.PASSWORD)
-                    )
-                }
-            ),
+            data_schema=_KEY_SCHEMA,
             errors=errors,
             description_placeholders={
                 "apps_url": "https://unsplash.com/oauth/applications"
@@ -296,21 +323,45 @@ class UnsplashedConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_feed(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Step 2: what to fetch, how big, how often and where to save it."""
+        """Step 2: the first feed. More can be added later with Add feed."""
         errors: dict[str, str] = {}
         if user_input is not None:
             settings = _normalize(user_input)
             errors = await _validate_settings(self.hass, settings)
             if not errors:
                 return self.async_create_entry(
-                    title=_title(settings),
+                    title=ACCOUNT_TITLE,
                     data={CONF_ACCESS_KEY: self._key},
-                    options=settings,
+                    subentries=[
+                        {
+                            "data": settings,
+                            "subentry_type": SUBENTRY_FEED,
+                            "title": _title(settings),
+                            "unique_id": None,
+                        }
+                    ],
                 )
         return self.async_show_form(
             step_id="feed",
             data_schema=vol.Schema(_settings_schema(user_input or {}, self._topics)),
             errors=errors,
+        )
+
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Replace the access key used by every feed on this account."""
+        entry = self._get_reconfigure_entry()
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            key = user_input[CONF_ACCESS_KEY].strip()
+            if not (err := await _check_key(self.hass, key)):
+                return self.async_update_reload_and_abort(
+                    entry, unique_id=_key_id(key), data_updates={CONF_ACCESS_KEY: key}
+                )
+            errors["base"] = err
+        return self.async_show_form(
+            step_id="reconfigure", data_schema=_KEY_SCHEMA, errors=errors
         )
 
     async def async_step_reauth(
@@ -324,54 +375,69 @@ class UnsplashedConfigFlow(ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
         if user_input is not None:
             key = user_input[CONF_ACCESS_KEY].strip()
-            if not (err := await self._check_key(key)):
+            if not (err := await _check_key(self.hass, key)):
                 return self.async_update_reload_and_abort(
-                    self._get_reauth_entry(), data_updates={CONF_ACCESS_KEY: key}
+                    self._get_reauth_entry(),
+                    unique_id=_key_id(key),
+                    data_updates={CONF_ACCESS_KEY: key},
                 )
             errors["base"] = err
         return self.async_show_form(
-            step_id="reauth_confirm",
-            data_schema=vol.Schema(
-                {
-                    vol.Required(CONF_ACCESS_KEY): TextSelector(
-                        TextSelectorConfig(type=TextSelectorType.PASSWORD)
-                    )
-                }
-            ),
-            errors=errors,
+            step_id="reauth_confirm", data_schema=_KEY_SCHEMA, errors=errors
         )
 
-    @staticmethod
-    def async_get_options_flow(config_entry) -> OptionsFlow:
-        return UnsplashedOptionsFlow()
 
-
-class UnsplashedOptionsFlow(OptionsFlow):
-    """Change filters, size, schedule and storage after setup."""
+class FeedSubentryFlow(ConfigSubentryFlow):
+    """Add or change one feed under an Unsplash account."""
 
     def __init__(self) -> None:
         self._topics: list[tuple[str, str]] | None = None
 
-    async def async_step_init(
+    async def _load_topics(self) -> list[tuple[str, str]]:
+        if self._topics is None:
+            self._topics = await _fetch_topics(
+                self.hass, self._get_entry().data[CONF_ACCESS_KEY]
+            )
+        return self._topics
+
+    async def async_step_user(
         self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
+    ) -> SubentryFlowResult:
         errors: dict[str, str] = {}
         if user_input is not None:
             settings = _normalize(user_input)
             errors = await _validate_settings(self.hass, settings)
             if not errors:
-                self.hass.config_entries.async_update_entry(
-                    self.config_entry, title=_title(settings)
-                )
-                return self.async_create_entry(data=settings)
-
-        defaults = user_input or {**self.config_entry.data, **self.config_entry.options}
-        if self._topics is None:
-            self._topics = await _fetch_topics(
-                self.hass, self.config_entry.data[CONF_ACCESS_KEY]
-            )
+                return self.async_create_entry(title=_title(settings), data=settings)
         return self.async_show_form(
-            step_id="init",
-            data_schema=vol.Schema(_settings_schema(defaults, self._topics)),
+            step_id="user",
+            data_schema=vol.Schema(
+                _settings_schema(user_input or {}, await self._load_topics())
+            ),
+            errors=errors,
+        )
+
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> SubentryFlowResult:
+        subentry = self._get_reconfigure_subentry()
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            settings = _normalize(user_input)
+            errors = await _validate_settings(self.hass, settings)
+            if not errors:
+                # Keep internal keys (such as a migrated feed's legacy ID).
+                return self.async_update_and_abort(
+                    self._get_entry(),
+                    subentry,
+                    title=_title(settings),
+                    data={**subentry.data, **settings},
+                )
+        defaults = user_input or dict(subentry.data)
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=vol.Schema(
+                _settings_schema(defaults, await self._load_topics())
+            ),
             errors=errors,
         )

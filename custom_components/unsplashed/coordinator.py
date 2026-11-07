@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.config_entries import ConfigEntry, ConfigSubentry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
@@ -37,6 +37,7 @@ from .const import (
     CONF_INCLUDE_ILLUSTRATIONS,
     CONF_INTERVAL_HOURS,
     CONF_KEEP_DAYS,
+    CONF_LEGACY_ID,
     CONF_QUERY,
     CONF_STRICT_FILTER,
     CONF_TOPICS,
@@ -64,7 +65,7 @@ STORAGE_VERSION = 1
 # update timer never pushes a fetch a whole interval later.
 EARLY_GRACE = timedelta(minutes=5)
 
-type UnsplashConfigEntry = ConfigEntry[UnsplashCoordinator]
+type UnsplashConfigEntry = ConfigEntry[dict[str, "UnsplashCoordinator"]]
 
 
 @dataclass(slots=True)
@@ -100,8 +101,13 @@ class UnsplashCoordinator(DataUpdateCoordinator[WallpaperState]):
 
     config_entry: UnsplashConfigEntry
 
-    def __init__(self, hass: HomeAssistant, entry: UnsplashConfigEntry) -> None:
-        self.settings: dict[str, Any] = {**entry.data, **entry.options}
+    def __init__(
+        self, hass: HomeAssistant, entry: UnsplashConfigEntry, subentry: ConfigSubentry
+    ) -> None:
+        self.subentry = subentry
+        self.settings: dict[str, Any] = dict(subentry.data)
+        # Stable ID for unique IDs, the device and storage.
+        self.feed_id: str = self.settings.get(CONF_LEGACY_ID) or subentry.subentry_id
         interval = timedelta(
             hours=float(self.settings.get(CONF_INTERVAL_HOURS, DEFAULT_INTERVAL_HOURS))
         )
@@ -109,7 +115,7 @@ class UnsplashCoordinator(DataUpdateCoordinator[WallpaperState]):
             hass,
             _LOGGER,
             config_entry=entry,
-            name=f"{DOMAIN} {entry.title}",
+            name=f"{DOMAIN} {subentry.title}",
             update_interval=interval,
         )
         self.interval = interval
@@ -118,7 +124,7 @@ class UnsplashCoordinator(DataUpdateCoordinator[WallpaperState]):
         )
         self.folder = Path(self.settings.get(CONF_FOLDER, DEFAULT_FOLDER))
         self._store: Store[dict[str, Any]] = Store(
-            hass, STORAGE_VERSION, f"{DOMAIN}.{entry.entry_id}"
+            hass, STORAGE_VERSION, f"{DOMAIN}.{self.feed_id}"
         )
         self._state = WallpaperState()
         self._force = False
@@ -183,7 +189,13 @@ class UnsplashCoordinator(DataUpdateCoordinator[WallpaperState]):
             record = _photo_record(photo, path)
             saved.append(record)
             self.hass.bus.async_fire(
-                EVENT_NEW_IMAGE, {"entry_id": self.config_entry.entry_id, **record}
+                EVENT_NEW_IMAGE,
+                {
+                    "entry_id": self.config_entry.entry_id,
+                    "feed_id": self.feed_id,
+                    "feed": self.subentry.title,
+                    **record,
+                },
             )
 
         self._state.last_fetch = dt_util.utcnow()

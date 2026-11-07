@@ -4,6 +4,18 @@ To release: bump `version` in `custom_components/unsplashed/manifest.json`, add 
 section below, and push to `main`. The Release workflow tags it and publishes the
 release.
 
+## 0.3.0
+
+### Changed
+- **One access key for every feed.** Unsplashed now appears as one **Unsplash** account entry that holds your key, with each feed listed under it. Use **Add feed** to add another feed without entering the key again, and **Change feed** to edit one.
+- Changing the key (**Reconfigure** on the account, or the re-authentication prompt) applies to every feed on that account.
+- Adding the same key a second time is blocked, with a pointer to **Add feed**.
+- The `unsplashed_new_image` event now also includes `feed_id` and `feed`.
+- Requires Home Assistant 2025.7 or newer.
+
+### Upgrading
+- Existing feeds are moved under an account entry automatically on first start. Entity IDs, history, devices, folders and settings are unchanged.
+
 ## 0.2.0
 
 ### Added

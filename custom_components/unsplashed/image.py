@@ -18,7 +18,10 @@ async def async_setup_entry(
     entry: UnsplashConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
-    async_add_entities([LatestImage(hass, entry.runtime_data)])
+    for subentry_id, coordinator in entry.runtime_data.items():
+        async_add_entities(
+            [LatestImage(hass, coordinator)], config_subentry_id=subentry_id
+        )
 
 
 class LatestImage(UnsplashEntity, ImageEntity):
