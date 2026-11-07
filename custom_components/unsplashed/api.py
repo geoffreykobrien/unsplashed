@@ -47,6 +47,16 @@ class Photo:
     def credit(self) -> str:
         return f"Photo by {self.photographer} on Unsplash"
 
+    @property
+    def is_illustration(self) -> bool:
+        """Unsplash has mixed illustrations into photo results since January 2025."""
+        return str(self.raw.get("asset_type") or "").lower() == "illustration"
+
+    @property
+    def is_premium(self) -> bool:
+        """Unsplash+ images need a paid license; never save those."""
+        return bool(self.raw.get("premium") or self.raw.get("plus"))
+
 
 def orientation_for(width: int, height: int) -> str:
     """Map a target size to Unsplash's orientation filter."""
@@ -136,6 +146,49 @@ class UnsplashClient:
         """Cheap call that fails with InvalidAuth on a bad key."""
         await self._get_json("/topics", {"per_page": 1})
 
+    async def list_topics(self) -> list[tuple[str, str]]:
+        """Return (slug, title) for Unsplash's featured topics (1 request)."""
+        data = await self._get_json(
+            "/topics", {"per_page": 30, "order_by": "featured"}
+        )
+        topics: list[tuple[str, str]] = []
+        for item in data if isinstance(data, list) else []:
+            slug = item.get("slug") or item.get("id")
+            if slug:
+                topics.append((str(slug), str(item.get("title") or slug)))
+        return topics
+
+    async def search_photos(
+        self,
+        *,
+        query: str,
+        width: int,
+        height: int,
+        color: str | None = None,
+        collections: str | None = None,
+        strict_filter: bool = False,
+        page: int = 1,
+    ) -> tuple[list[Photo], int]:
+        """One page (up to 30) of search results and the total page count (1 request)."""
+        params: dict[str, Any] = {
+            "query": query,
+            "per_page": 30,
+            "page": max(1, page),
+            "orientation": orientation_for(width, height),
+            "content_filter": "high" if strict_filter else "low",
+            "order_by": "relevant",
+        }
+        if color:
+            params["color"] = color
+        if collections:
+            params["collections"] = collections
+        data = await self._get_json("/search/photos", params)
+        if not isinstance(data, dict):
+            return [], 0
+        items = data.get("results") or []
+        photos = [p for item in items if (p := parse_photo(item, width, height))]
+        return photos, int(data.get("total_pages") or 0)
+
     async def random_photos(
         self,
         *,
@@ -145,6 +198,7 @@ class UnsplashClient:
         query: str | None = None,
         topics: str | None = None,
         collections: str | None = None,
+        username: str | None = None,
         strict_filter: bool = False,
     ) -> list[Photo]:
         """Return up to `count` random photos matching the filters (1 request)."""
@@ -154,7 +208,9 @@ class UnsplashClient:
             "content_filter": "high" if strict_filter else "low",
         }
         # Unsplash won't combine query with topics/collections; query wins.
-        if query:
+        if username:
+            params["username"] = username.lstrip("@")
+        elif query:
             params["query"] = query
         else:
             if topics:

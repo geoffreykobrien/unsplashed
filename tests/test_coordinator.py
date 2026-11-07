@@ -200,3 +200,97 @@ async def test_rate_limit_retries(
     await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
     assert entry.state is ConfigEntryState.SETUP_RETRY
+
+
+def _mock_downloads(aioclient_mock, ids) -> None:
+    for i in ids:
+        aioclient_mock.get(
+            f"https://images.unsplash.com/photo-{i}",
+            content=JPEG,
+            headers={"Content-Type": "image/jpeg"},
+        )
+        aioclient_mock.get(f"{API}/photos/{i}/download", json={"url": "x"})
+
+
+async def test_illustrations_and_plus_filtered(hass, aioclient_mock, tmp_path) -> None:
+    photos = [
+        {**make_photo("ill"), "asset_type": "illustration"},
+        {**make_photo("plus"), "premium": True},
+        {**make_photo("ok1"), "asset_type": "photo"},
+        make_photo("ok2"),
+    ]
+    aioclient_mock.get(f"{API}/photos/random", json=photos)
+    _mock_downloads(aioclient_mock, ["ill", "plus", "ok1", "ok2"])
+    entry = _entry(tmp_path, count=2)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert (tmp_path / "unsplash_ok1.jpg").exists()
+    assert (tmp_path / "unsplash_ok2.jpg").exists()
+    assert not (tmp_path / "unsplash_ill.jpg").exists()
+    assert not (tmp_path / "unsplash_plus.jpg").exists()
+    # Asked Unsplash for extra photos to make up for the filtering.
+    random_call = next(c for c in aioclient_mock.mock_calls if "/photos/random" in str(c[1]))
+    assert int(random_call[1].query["count"]) > 2
+
+
+async def test_illustrations_allowed(hass, aioclient_mock, tmp_path) -> None:
+    aioclient_mock.get(
+        f"{API}/photos/random",
+        json=[{**make_photo("ill"), "asset_type": "illustration"}],
+    )
+    _mock_downloads(aioclient_mock, ["ill"])
+    entry = _entry(tmp_path, count=1, include_illustrations=True)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert (tmp_path / "unsplash_ill.jpg").exists()
+
+
+async def test_color_uses_search(hass, aioclient_mock, tmp_path) -> None:
+    aioclient_mock.get(
+        f"{API}/search/photos",
+        json={"total": 2, "total_pages": 5, "results": [make_photo("b1"), make_photo("b2")]},
+    )
+    _mock_downloads(aioclient_mock, ["b1", "b2"])
+    entry = _entry(tmp_path, query="", color="blue", count=2)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    call = next(c for c in aioclient_mock.mock_calls if "/search/photos" in str(c[1]))
+    q = call[1].query
+    assert q["color"] == "blue"
+    assert q["query"] == "blue"  # color name used when there are no search words
+    assert q["orientation"] == "portrait"
+    assert (tmp_path / "unsplash_b1.jpg").exists()
+    assert entry.runtime_data._search_pages == 5
+
+
+async def test_photographers_split_and_interleave(hass, aioclient_mock, tmp_path) -> None:
+    def by(user, ids):
+        return [make_photo(i, name=user) for i in ids]
+
+    # aioclient_mock matches on params, so each username gets its own response.
+    aioclient_mock.get(
+        f"{API}/photos/random", params={"username": "alice"}, json=by("Alice", ["a1", "a2", "a3"])
+    )
+    aioclient_mock.get(
+        f"{API}/photos/random", params={"username": "bob"}, json=by("Bob", ["b1", "b2", "b3"])
+    )
+    _mock_downloads(aioclient_mock, ["a1", "a2", "a3", "b1", "b2", "b3"])
+    entry = _entry(tmp_path, query="", usernames="alice, @bob", count=2)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    users = sorted(
+        c[1].query["username"] for c in aioclient_mock.mock_calls if "/photos/random" in str(c[1])
+    )
+    assert users == ["alice", "bob"]
+    saved = sorted(p.name for p in tmp_path.glob("unsplash_*.jpg"))
+    # One from each photographer.
+    assert len(saved) == 2
+    assert any(n.startswith("unsplash_a") for n in saved)
+    assert any(n.startswith("unsplash_b") for n in saved)

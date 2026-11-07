@@ -17,6 +17,9 @@ CONF_COUNT: Final = "count"
 CONF_INTERVAL_HOURS: Final = "interval_hours"
 CONF_KEEP_DAYS: Final = "keep_days"
 CONF_STRICT_FILTER: Final = "strict_content_filter"
+CONF_USERNAMES: Final = "usernames"
+CONF_COLOR: Final = "color"
+CONF_INCLUDE_ILLUSTRATIONS: Final = "include_illustrations"
 
 DEFAULT_FOLDER: Final = "/media/wallpapers"
 DEFAULT_WIDTH: Final = 1080
@@ -26,6 +29,24 @@ DEFAULT_INTERVAL_HOURS: Final = 24
 DEFAULT_KEEP_DAYS: Final = 30
 
 MAX_COUNT: Final = 30
+MAX_USERNAMES: Final = 10
+
+COLOR_ANY: Final = "any"
+# Unsplash's search color filter values, with the word used as the search
+# query when the user picks a color but no search words.
+COLORS: Final = {
+    "black_and_white": "black and white",
+    "black": "black",
+    "white": "white",
+    "yellow": "yellow",
+    "orange": "orange",
+    "red": "red",
+    "purple": "purple",
+    "magenta": "magenta",
+    "green": "green",
+    "teal": "teal",
+    "blue": "blue",
+}
 FILE_PREFIX: Final = "unsplash_"
 
 EVENT_NEW_IMAGE: Final = f"{DOMAIN}_new_image"

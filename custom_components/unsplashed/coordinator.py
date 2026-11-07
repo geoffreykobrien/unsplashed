@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import random
 import time
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
@@ -18,19 +19,31 @@ from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
-from .api import InvalidAuth, Photo, RateLimited, UnsplashClient, UnsplashError
+from .api import (
+    InvalidAuth,
+    NoResults,
+    Photo,
+    RateLimited,
+    UnsplashClient,
+    UnsplashError,
+)
 from .const import (
     CONF_ACCESS_KEY,
     CONF_COLLECTIONS,
+    CONF_COLOR,
     CONF_COUNT,
     CONF_FOLDER,
     CONF_HEIGHT,
+    CONF_INCLUDE_ILLUSTRATIONS,
     CONF_INTERVAL_HOURS,
     CONF_KEEP_DAYS,
     CONF_QUERY,
     CONF_STRICT_FILTER,
     CONF_TOPICS,
+    CONF_USERNAMES,
     CONF_WIDTH,
+    COLOR_ANY,
+    COLORS,
     DEFAULT_COUNT,
     DEFAULT_FOLDER,
     DEFAULT_HEIGHT,
@@ -40,6 +53,8 @@ from .const import (
     DOMAIN,
     EVENT_NEW_IMAGE,
     FILE_PREFIX,
+    MAX_COUNT,
+    MAX_USERNAMES,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -107,6 +122,9 @@ class UnsplashCoordinator(DataUpdateCoordinator[WallpaperState]):
         )
         self._state = WallpaperState()
         self._force = False
+        # Last known number of search result pages, so color-filtered fetches
+        # can jump to a random page instead of always taking the top results.
+        self._search_pages: int = 0
 
     async def async_load(self) -> None:
         """Restore the last fetch so a restart doesn't trigger an extra one."""
@@ -114,6 +132,7 @@ class UnsplashCoordinator(DataUpdateCoordinator[WallpaperState]):
         if last := stored.get("last_fetch"):
             self._state.last_fetch = dt_util.parse_datetime(last)
         self._state.recent = stored.get("recent", [])
+        self._search_pages = int(stored.get("search_pages") or 0)
         if self._state.recent:
             self._state.latest = self._state.recent[0]
             self._state.latest_path = self._state.latest.get("path")
@@ -137,19 +156,8 @@ class UnsplashCoordinator(DataUpdateCoordinator[WallpaperState]):
         return replace(self._state, recent=list(self._state.recent))
 
     async def _fetch_batch(self) -> None:
-        s = self.settings
-        width = int(s.get(CONF_WIDTH, DEFAULT_WIDTH))
-        height = int(s.get(CONF_HEIGHT, DEFAULT_HEIGHT))
         try:
-            photos = await self.client.random_photos(
-                count=int(s.get(CONF_COUNT, DEFAULT_COUNT)),
-                width=width,
-                height=height,
-                query=(s.get(CONF_QUERY) or "").strip() or None,
-                topics=(s.get(CONF_TOPICS) or "").strip() or None,
-                collections=(s.get(CONF_COLLECTIONS) or "").strip() or None,
-                strict_filter=bool(s.get(CONF_STRICT_FILTER, False)),
-            )
+            photos = await self._choose_photos()
         except InvalidAuth as err:
             raise ConfigEntryAuthFailed(str(err)) from err
         except RateLimited as err:
@@ -188,9 +196,90 @@ class UnsplashCoordinator(DataUpdateCoordinator[WallpaperState]):
             {
                 "last_fetch": self._state.last_fetch.isoformat(),
                 "recent": self._state.recent,
+                "search_pages": self._search_pages,
             }
         )
         _LOGGER.debug("Saved %d new Unsplash photo(s) to %s", len(saved), self.folder)
+
+    async def _choose_photos(self) -> list[Photo]:
+        """Pick this fetch's photos according to the feed's filters.
+
+        Three modes, in order of precedence:
+        - Color: Unsplash only supports a color filter on search, so this uses
+          /search/photos (search words, or the color's name when there are
+          none) on a random results page.
+        - Photographers: /photos/random per username, splitting the count.
+        - Everything else: one /photos/random call with query/topics/collections.
+
+        Illustrations (unless allowed) and Unsplash+ images are dropped. Each
+        call asks for extra results so the filtering still leaves enough.
+        """
+        s = self.settings
+        width = int(s.get(CONF_WIDTH, DEFAULT_WIDTH))
+        height = int(s.get(CONF_HEIGHT, DEFAULT_HEIGHT))
+        count = int(s.get(CONF_COUNT, DEFAULT_COUNT))
+        strict = bool(s.get(CONF_STRICT_FILTER, False))
+        include_ill = bool(s.get(CONF_INCLUDE_ILLUSTRATIONS, False))
+        query = _clean(s.get(CONF_QUERY))
+        topics = _clean(s.get(CONF_TOPICS))
+        collections = _clean(s.get(CONF_COLLECTIONS))
+        color = _clean(s.get(CONF_COLOR))
+        color = None if color in (None, COLOR_ANY) else color
+        usernames = _split(s.get(CONF_USERNAMES))[:MAX_USERNAMES]
+        ask = count if include_ill else min(MAX_COUNT, max(count * 2, count + 3))
+
+        candidates: list[Photo]
+        if color:
+            search_query = query or COLORS.get(color, color)
+            page = random.randint(1, min(self._search_pages, 20)) if self._search_pages else 1
+            candidates, total = await self.client.search_photos(
+                query=search_query, width=width, height=height, color=color,
+                collections=collections, strict_filter=strict, page=page,
+            )
+            if not candidates and page > 1:
+                candidates, total = await self.client.search_photos(
+                    query=search_query, width=width, height=height, color=color,
+                    collections=collections, strict_filter=strict, page=1,
+                )
+            self._search_pages = total
+            random.shuffle(candidates)
+        elif usernames:
+            random.shuffle(usernames)
+            per_user = _split_count(count, len(usernames))
+            candidates = []
+            for username, n in zip(usernames, per_user, strict=False):
+                if n <= 0:
+                    continue
+                extra = n if include_ill else min(MAX_COUNT, n * 2 + 1)
+                try:
+                    candidates += await self.client.random_photos(
+                        count=extra, width=width, height=height,
+                        username=username, strict_filter=strict,
+                    )
+                except NoResults:
+                    _LOGGER.warning(
+                        "Unsplash found no photos for photographer '%s' in this orientation",
+                        username,
+                    )
+        else:
+            candidates = await self.client.random_photos(
+                count=ask, width=width, height=height, query=query,
+                topics=topics, collections=collections, strict_filter=strict,
+            )
+
+        seen: set[str] = set()
+        picked: list[Photo] = []
+        for photo in candidates:
+            if photo.id in seen or photo.is_premium:
+                continue
+            if photo.is_illustration and not include_ill:
+                continue
+            seen.add(photo.id)
+            picked.append(photo)
+        if usernames and not color:
+            # Interleave so one photographer doesn't fill the whole batch.
+            picked = _interleave(picked)
+        return picked[:count]
 
     def _housekeeping(self) -> None:
         """Prune old files and count what's left. Runs in the executor."""
@@ -225,3 +314,33 @@ def _atomic_write(path: Path, content: bytes) -> None:
     tmp = path.with_suffix(".part")
     tmp.write_bytes(content)
     os.replace(tmp, path)
+
+
+def _clean(value: Any) -> str | None:
+    text = str(value or "").strip()
+    return text or None
+
+
+def _split(value: Any) -> list[str]:
+    return [part.strip().lstrip("@") for part in str(value or "").split(",") if part.strip().lstrip("@")]
+
+
+def _split_count(total: int, buckets: int) -> list[int]:
+    """Spread `total` photos across `buckets` photographers as evenly as possible."""
+    if buckets <= 0:
+        return []
+    base, extra = divmod(total, buckets)
+    return [base + (1 if i < extra else 0) for i in range(buckets)]
+
+
+def _interleave(photos: list[Photo]) -> list[Photo]:
+    """Round-robin photos by photographer."""
+    groups: dict[str, list[Photo]] = {}
+    for photo in photos:
+        groups.setdefault(photo.photographer, []).append(photo)
+    out: list[Photo] = []
+    while any(groups.values()):
+        for key in list(groups):
+            if groups[key]:
+                out.append(groups[key].pop(0))
+    return out

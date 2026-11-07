@@ -15,7 +15,9 @@ I built it to feed a portrait kitchen wall display. Point a slideshow at the fol
 
 - **Set up entirely in the UI.** You enter your Unsplash access key and every option in the Home Assistant setup screen. No YAML, no `secrets.yaml`, no shell commands.
 - **Photos sized to your screen.** Set a width and height and every photo comes back cropped to exactly that size. Unsplash only returns photos in the matching orientation, so a 1080×1920 screen gets portrait photos.
-- **Choose what you get.** Filter by search words (`maine, coast, autumn`), Unsplash topics (`nature, wallpapers`), or public collection IDs.
+- **Choose what you get.** Filter by search words (`maine, coast, autumn`), Unsplash topics (picked from Unsplash's live list), public collection IDs, or specific photographers.
+- **Match a color.** Limit a feed to photos dominated by one color, such as blue, orange or black and white, to suit a room or season.
+- **Photos only.** Unsplash now mixes illustrations into its photo results. They're filtered out unless you turn them on. Paid Unsplash+ images are always skipped.
 - **Runs on a schedule.** Fetches every *N* hours. A Home Assistant restart doesn't trigger an extra fetch, because the last fetch time is saved.
 - **Cleans up after itself.** Deletes its own photos once they're older than a set number of days. It only touches files named `unsplash_*.jpg`, so other photos in the same folder are never removed.
 - **Safe for slideshows.** Files are written to a temporary name and renamed when complete, so a slideshow never loads a half-downloaded image.
@@ -27,13 +29,11 @@ I built it to feed a portrait kitchen wall display. Point a slideshow at the fol
 
 ## Installation
 
-### HACS (recommended)
+### Marketplace (Home Assistant 2026.11+) or HACS (recommended)
 
-1. In Home Assistant, open **HACS**.
-2. Open the **⋮** menu (top right) and choose **Custom repositories**.
-3. Enter `https://github.com/geoffreykobrien/unsplashed`, set the type to **Integration**, and click **Add**.
-4. Search HACS for **Unsplashed**, open it, and click **Download**.
-5. Restart Home Assistant.
+1. On Home Assistant 2026.11 or later, go to **Settings → Marketplace → Add from link**. On older versions, open **HACS**, then the **⋮** menu → **Custom repositories**.
+2. Enter `https://github.com/geoffreykobrien/unsplashed` as an **Integration**.
+3. Install **Unsplashed**, then restart Home Assistant.
 
 ### Manual
 
@@ -59,8 +59,8 @@ New apps start in **demo mode**, which allows **50 API requests per hour**. That
 ## Setup
 
 1. Go to **Settings → Devices & services → Add integration** and choose **Unsplashed**.
-2. Paste your **Access key** and fill in the options below. Setup checks the key with Unsplash before saving.
-3. Click **Submit**. The first batch of photos downloads right away.
+2. Paste your **Access key**. Setup checks it with Unsplash and loads the current list of featured topics.
+3. On the **What to fetch** screen, fill in the options below and click **Submit**. The first batch of photos downloads right away.
 
 Each setup creates one *feed*. Add the integration more than once to run several feeds, for example a portrait feed for the kitchen and a landscape feed for the TV, each saving to its own folder.
 
@@ -72,16 +72,29 @@ You can change any of these later under **Settings → Devices & services → Un
 | --- | --- | --- |
 | **Access key** | — | Your Unsplash app's Access Key. Stored in Home Assistant's config entry, never in YAML. |
 | **Search words** | *(empty)* | Comma-separated keywords, such as `maine, coast, autumn forest`. |
-| **Topics** | *(empty)* | Comma-separated [topic](https://unsplash.com/t) slugs or IDs, such as `nature, wallpapers, travel`. |
+| **Topics** | *(empty)* | Pick one or more of Unsplash's featured [topics](https://unsplash.com/t) from the list, or type any topic slug. |
 | **Collections** | *(empty)* | Comma-separated public collection IDs. |
+| **Photographers** | *(empty)* | Up to 10 comma-separated Unsplash usernames, such as `chrislawton, @nasa`. Each fetch splits its photos between them. |
+| **Color** | Any color | Only photos dominated by this color: black and white, black, white, yellow, orange, red, purple, magenta, green, teal or blue. |
 | **Photos per fetch** | `3` | How many photos each fetch downloads (1–30). |
 | **Fetch every** | `24` h | Hours between fetches (1–168). |
 | **Width / Height** | `1080` × `1920` | Exact output size in pixels. The orientation filter follows from these values. |
 | **Save to folder** | `/media/wallpapers` | Absolute path. Created automatically if it doesn't exist. |
 | **Delete photos older than** | `30` days | Set to `0` to keep everything forever. |
 | **Strict content filter** | off | Asks Unsplash for its stricter, family-friendly filtering. |
+| **Include illustrations** | off | Unsplash has mixed illustrations into photo results since January 2025. Leave this off to keep the feed to photos. |
 
-Search words can't be combined with topics or collections, because Unsplash doesn't support that combination. Use one or the other. If you leave all three empty, you get random photos from all of Unsplash.
+Unsplash only supports some filter combinations, and setup tells you if you pick one it doesn't support:
+
+| Combination | Allowed? |
+| --- | --- |
+| Search words + topics or collections | No, use one or the other |
+| Photographers + anything else | No, photographers stand alone |
+| Color + search words and/or collections | Yes |
+| Color + topics | No, Unsplash's color filter only works with search |
+| Color with no search words | Yes, the color's name is used as the search (for example `blue`) |
+
+If you leave every filter empty, you get random photos from all of Unsplash.
 
 ---
 
@@ -173,7 +186,7 @@ actions:
 
 Unsplash counts requests to `api.unsplash.com`. The image downloads themselves come from Unsplash's CDN and don't count.
 
-Each fetch uses **1 request** to choose photos, plus **1 request per photo** to report the download as Unsplash requires. That works out to:
+Each fetch uses **1 request** to choose photos (or **1 per photographer** in a photographers feed), plus **1 request per photo** to report the download as Unsplash requires. Filtering out illustrations doesn't cost extra requests: the integration just asks for a few more photos in the same request. That works out to:
 
 | Photos per fetch | Requests per fetch |
 | --- | --- |
@@ -181,7 +194,7 @@ Each fetch uses **1 request** to choose photos, plus **1 request per photo** to 
 | 10 | 11 |
 | 30 (max) | 31 |
 
-Even at the maximum settings (30 photos, hourly) a single feed stays under the demo limit of 50 requests per hour. If you run several feeds on one key with a short interval, add up their totals. Setup checks the key with one extra request.
+Even at the maximum settings (30 photos, hourly) a single feed stays under the demo limit of 50 requests per hour. If you run several feeds on one key with a short interval, add up their totals. Setup checks the key and loads the topic list with two extra requests, and opening **Configure** loads the topic list again (one request).
 
 If Unsplash returns a rate-limit error, the fetch is skipped and retried at the next interval. Nothing breaks.
 
@@ -205,7 +218,9 @@ The API guidelines prefer apps to hotlink images from Unsplash's CDN rather than
 
 **"Home Assistant can't create or write to that folder."** Use a path Home Assistant can write to. On Home Assistant OS, anything under `/media` or `/config/www` works. Paths on a network share need the share mounted first under **Settings → System → Storage**.
 
-**No photos arrive.** Check **Settings → System → Logs** for `unsplashed` entries. A very narrow search (an unusual word combined with portrait orientation) can return no results. Try broader search words or a topic like `nature`.
+**No photos arrive.** Check **Settings → System → Logs** for `unsplashed` entries. A very narrow search (an unusual word combined with portrait orientation, or a rare color) can return no results. Try broader search words or a topic like `nature`. In a photographers feed, a photographer with few photos in your orientation may have none to give; the log names them.
+
+**A drawing showed up anyway.** Unsplash marks illustrations with an asset type, and the filter relies on that. If one slips through unmarked, open an issue with the photo's link.
 
 **Debug logging.** Add this to `configuration.yaml` and restart:
 
@@ -226,6 +241,10 @@ pytest -q
 ```
 
 GitHub Actions runs HACS validation, `hassfest`, and the test suite on every push.
+
+### Releases
+
+When `version` in `manifest.json` changes on `main`, the **Release** workflow tags it (`vX.Y.Z`) and publishes a GitHub release using the matching section of [CHANGELOG.md](CHANGELOG.md), so HACS and the Home Assistant Marketplace offer it as an update.
 
 ---
 
